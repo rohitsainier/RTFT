@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>File Transfer</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+    <div class="container">
+        <button id="connectButton">Connect</button>
+        <input type="file" id="fileInput" disabled>
+        <button id="sendButton" disabled>Send File</button>
+        <button id="receiveButton" disabled>Receive File</button>
+        <div id="status"></div>
+        <div id="webrtcStatus"></div> <!-- New element for WebRTC status -->
+        <ul id="clientList"></ul>
+    </div>
+    <script src="popup.js"></script>
+</body>
+
+</html>
