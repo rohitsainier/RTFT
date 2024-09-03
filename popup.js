@@ -25,6 +25,10 @@ const statusElement = document.getElementById("status");
 const webrtcStatusElement = document.getElementById("webrtcStatus"); // New element for WebRTC status
 const connectButton = document.getElementById("connectButton");
 
+// Add these new variables
+let pendingFileTransfer = false;
+const receiveButton = document.getElementById("receiveButton");
+
 function connectToServer() {
   if (signalingServer && signalingServer.readyState === WebSocket.OPEN) {
     statusElement.textContent = "Already connected.";
@@ -73,9 +77,16 @@ function updateClientList(clients) {
       clientItem.textContent = client;
       clientItem.addEventListener("click", () => {
         targetClientId = client;
+        // Update all list items to remove 'selected' class
+        clientListElement.querySelectorAll('li').forEach(item => item.classList.remove('selected'));
+        // Add 'selected' class to the clicked item
+        clientItem.classList.add('selected');
         statusElement.textContent = `Selected client: ${client}`;
         console.log(`Selected client: ${client}`);
       });
+      if (client === targetClientId) {
+        clientItem.classList.add('selected');
+      }
       clientListElement.appendChild(clientItem);
     }
   });
@@ -145,7 +156,12 @@ function createConnection() {
     .then((offer) => {
       localConnection.setLocalDescription(offer);
       console.log("Sending offer.");
-      sendToRemotePeer({ type: "offer", offer, target: targetClientId });
+      sendToRemotePeer({ 
+        type: "offer", 
+        offer, 
+        target: targetClientId,
+        fileInfo: { name: file.name, size: file.size, type: file.type } // Add file type
+      });
     })
     .catch((error) => {
       console.error("Error creating offer:", error);
@@ -153,49 +169,13 @@ function createConnection() {
 }
 
 function receiveConnection() {
-  remoteConnection = new RTCPeerConnection();
+  if (!pendingFileTransfer) {
+    statusElement.textContent = "No pending file transfer.";
+    return;
+  }
 
-  remoteConnection.onicecandidate = (e) => {
-    if (e.candidate) {
-      console.log("Sending ICE candidate.");
-      sendToLocalPeer({
-        type: "candidate",
-        candidate: e.candidate,
-        target: targetClientId,
-      });
-    }
-  };
-
-  remoteConnection.ondatachannel = (e) => {
-    receiveChannel = e.channel;
-    receiveChannel.onmessage = onReceiveMessageCallback;
-    receiveChannel.onopen = () => {
-      statusElement.textContent = "Receiving file...";
-      webrtcStatusElement.textContent = "WebRTC Status: Data channel open"; // Update WebRTC status
-      console.log("Data channel opened.");
-    };
-    receiveChannel.onclose = () => {
-      statusElement.textContent = "Connection closed.";
-      webrtcStatusElement.textContent = "WebRTC Status: Data channel closed"; // Update WebRTC status
-      console.log("Data channel closed.");
-    };
-
-    receiveChannel.onerror = (error) => {
-      console.error("Data channel error:", error);
-    };
-  };
-
-  remoteConnection.onconnectionstatechange = () => {
-    console.log("Remote connection state:", remoteConnection.connectionState);
-    webrtcStatusElement.textContent = `WebRTC Status: ${remoteConnection.connectionState}`;
-  };
-
-  receiveOfferFromLocalPeer()
-    .then((offer) => {
-      console.log("Received offer:", offer);
-      remoteConnection.setRemoteDescription(new RTCSessionDescription(offer));
-      return remoteConnection.createAnswer();
-    })
+  remoteConnection
+    .createAnswer()
     .then((answer) => {
       remoteConnection.setLocalDescription(answer);
       console.log("Sending answer.");
@@ -204,6 +184,9 @@ function receiveConnection() {
     .catch((error) => {
       console.error("Error creating answer:", error);
     });
+
+  pendingFileTransfer = false;
+  receiveButton.disabled = true;
 }
 
 function sendFile(file) {
@@ -256,6 +239,8 @@ function sendFile(file) {
   readNextChunk();
 }
 
+let incomingFileInfo = null;
+
 function onReceiveMessageCallback(event) {
   const data = event.data;
   if (typeof data === "string") {
@@ -279,16 +264,19 @@ function onReceiveMessageCallback(event) {
   statusElement.textContent = `Receiving file... ${percentage}%`;
 
   if (receivedSize === fileSize) {
-    const received = new Blob(receiveBuffer);
+    const received = new Blob(receiveBuffer, { type: incomingFileInfo.type });
     receiveBuffer = [];
 
     const downloadLink = document.createElement("a");
     downloadLink.href = URL.createObjectURL(received);
-    downloadLink.download = "received_file";
-    downloadLink.textContent = "Download received file";
+    downloadLink.download = incomingFileInfo.name;
+    downloadLink.textContent = `Download ${incomingFileInfo.name}`;
     statusElement.textContent = "File received successfully. ";
     statusElement.appendChild(downloadLink);
     console.log("File received successfully.");
+
+    // Reset incomingFileInfo
+    incomingFileInfo = null;
   }
 }
 
@@ -324,6 +312,13 @@ function receiveOfferFromLocalPeer() {
 function handleSignalingData(data) {
   if (data.type === "offer") {
     console.log("Handling offer:", data.offer);
+    
+    // Check if the sender is the selected target client
+    if (data.from !== targetClientId) {
+      console.log("Offer received from non-selected client. Ignoring.");
+      return;
+    }
+
     if (!remoteConnection) {
       console.log("Initializing remote connection");
       remoteConnection = new RTCPeerConnection();
@@ -367,15 +362,13 @@ function handleSignalingData(data) {
     remoteConnection.setRemoteDescription(
       new RTCSessionDescription(data.offer)
     );
-    remoteConnection
-      .createAnswer()
-      .then((answer) => {
-        remoteConnection.setLocalDescription(answer);
-        sendToRemotePeer({ type: "answer", answer, target: data.from });
-      })
-      .catch((error) => {
-        console.error("Error creating answer:", error);
-      });
+    
+    incomingFileInfo = data.fileInfo;
+    statusElement.textContent = `Incoming file from ${data.from}: ${incomingFileInfo.name} (${formatFileSize(incomingFileInfo.size)})`;
+    receiveButton.disabled = false;
+    pendingFileTransfer = true;
+
+    // Don't create answer immediately, wait for user to click receive button
   } else if (data.type === "answer") {
     console.log("Handling answer:", data.answer);
     localConnection.setRemoteDescription(
@@ -398,3 +391,16 @@ function handleSignalingData(data) {
     }
   }
 }
+
+// Add a helper function to format file size
+function formatFileSize(bytes) {
+  if (bytes < 1024) return bytes + " bytes";
+  else if (bytes < 1048576) return (bytes / 1024).toFixed(2) + " KB";
+  else if (bytes < 1073741824) return (bytes / 1048576).toFixed(2) + " MB";
+  else return (bytes / 1073741824).toFixed(2) + " GB";
+}
+
+// Modify the initial setup
+document.addEventListener("DOMContentLoaded", () => {
+  receiveButton.disabled = true;
+});
