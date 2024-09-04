@@ -1,22 +1,35 @@
 <!DOCTYPE html>
-<html>
-
+<html lang="en">
 <head>
-    <title>File Transfer</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebRTC File Transfer</title>
     <link rel="stylesheet" href="styles.css">
 </head>
-
 <body>
     <div class="container">
-        <button id="connectButton">Connect</button>
-        <input type="file" id="fileInput" disabled>
-        <button id="sendButton" disabled>Send File</button>
-        <button id="receiveButton" disabled>Receive File</button>
-        <div id="status"></div>
-        <div id="webrtcStatus"></div> <!-- New element for WebRTC status -->
-        <ul id="clientList"></ul>
+        <h1>WebRTC File Transfer</h1>
+        <div class="connection-status">
+            <button id="connectButton" class="btn btn-primary">Connect</button>
+            <span id="connectionStatus" class="status"></span>
+        </div>
+        <div id="clientInfo" class="client-info" style="display: none;">
+            <p>Connected as: <span id="clientId"></span></p>
+        </div>
+        <div class="file-transfer">
+            <input type="file" id="fileInput" disabled>
+            <button id="sendButton" class="btn btn-secondary" disabled>Send File</button>
+        </div>
+        <div class="receive-file">
+            <button id="receiveButton" class="btn btn-secondary" disabled>Receive File</button>
+        </div>
+        <div id="status" class="status"></div>
+        <div id="webrtcStatus" class="webrtc-status"></div>
+        <div class="client-list">
+            <h2>Connected Clients</h2>
+            <ul id="clientList"></ul>
+        </div>
     </div>
     <script src="popup.js"></script>
 </body>
-
 </html>

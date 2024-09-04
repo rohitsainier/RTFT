@@ -10,6 +10,10 @@ let clientId;
 let targetClientId;
 let signalingServer;
 
+const clientInfoElement = document.getElementById("clientInfo");
+const clientIdElement = document.getElementById("clientId");
+const connectionStatusElement = document.getElementById("connectionStatus");
+
 document
   .getElementById("connectButton")
   .addEventListener("click", connectToServer);
@@ -22,22 +26,21 @@ document
 
 const clientListElement = document.getElementById("clientList");
 const statusElement = document.getElementById("status");
-const webrtcStatusElement = document.getElementById("webrtcStatus"); // New element for WebRTC status
+const webrtcStatusElement = document.getElementById("webrtcStatus");
 const connectButton = document.getElementById("connectButton");
 
-// Add these new variables
 let pendingFileTransfer = false;
 const receiveButton = document.getElementById("receiveButton");
 
 function connectToServer() {
   if (signalingServer && signalingServer.readyState === WebSocket.OPEN) {
-    statusElement.textContent = "Already connected.";
+    connectionStatusElement.textContent = "Already connected.";
     return;
   }
 
   signalingServer = new WebSocket("https://glimmer-political-koi.glitch.me");
   signalingServer.onopen = () => {
-    statusElement.textContent = "Connected to signaling server.";
+    connectionStatusElement.textContent = "Connected to signaling server.";
     connectButton.textContent = "Connected";
     connectButton.disabled = true;
   };
@@ -45,7 +48,8 @@ function connectToServer() {
     const data = JSON.parse(message.data);
     if (data.type === "clientId") {
       clientId = data.id;
-      statusElement.textContent = `Connected as ${clientId}`;
+      clientIdElement.textContent = clientId;
+      clientInfoElement.style.display = "block";
       document.getElementById("fileInput").disabled = false;
       document.getElementById("sendButton").disabled = false;
       document.getElementById("receiveButton").disabled = false;
@@ -60,12 +64,13 @@ function connectToServer() {
     }
   };
   signalingServer.onclose = () => {
-    statusElement.textContent = "Disconnected from signaling server.";
+    connectionStatusElement.textContent = "Disconnected from signaling server.";
     connectButton.textContent = "Connect";
     connectButton.disabled = false;
+    clientInfoElement.style.display = "none";
   };
   signalingServer.onerror = (error) => {
-    statusElement.textContent = `Error: ${error.message}`;
+    connectionStatusElement.textContent = `Error: ${error.message}`;
   };
 }
 
@@ -77,9 +82,7 @@ function updateClientList(clients) {
       clientItem.textContent = client;
       clientItem.addEventListener("click", () => {
         targetClientId = client;
-        // Update all list items to remove 'selected' class
         clientListElement.querySelectorAll('li').forEach(item => item.classList.remove('selected'));
-        // Add 'selected' class to the clicked item
         clientItem.classList.add('selected');
         statusElement.textContent = `Selected client: ${client}`;
         console.log(`Selected client: ${client}`);
@@ -114,20 +117,19 @@ function createConnection() {
   localConnection = new RTCPeerConnection();
   sendChannel = localConnection.createDataChannel("sendDataChannel");
 
-  // Set the bufferedAmountLowThreshold
-  sendChannel.bufferedAmountLowThreshold = 65535; // Adjust this value if needed
+  sendChannel.bufferedAmountLowThreshold = 65535;
 
   sendChannel.onopen = () => {
     statusElement.textContent = "Connection opened, sending file...";
-    webrtcStatusElement.textContent = "WebRTC Status: Data channel open"; // Update WebRTC status
+    webrtcStatusElement.textContent = "WebRTC Status: Data channel open";
     console.log("Data channel opened.");
-    sendChannel.send(JSON.stringify({ type: "fileSize", size: fileSize })); // Send file size first
+    sendChannel.send(JSON.stringify({ type: "fileSize", size: fileSize }));
     sendFile(file);
   };
 
   sendChannel.onclose = () => {
     statusElement.textContent = "Connection closed.";
-    webrtcStatusElement.textContent = "WebRTC Status: Data channel closed"; // Update WebRTC status
+    webrtcStatusElement.textContent = "WebRTC Status: Data channel closed";
     console.log("Data channel closed.");
   };
 
@@ -160,7 +162,7 @@ function createConnection() {
         type: "offer", 
         offer, 
         target: targetClientId,
-        fileInfo: { name: file.name, size: file.size, type: file.type } // Add file type
+        fileInfo: { name: file.name, size: file.size, type: file.type }
       });
     })
     .catch((error) => {
@@ -190,7 +192,7 @@ function receiveConnection() {
 }
 
 function sendFile(file) {
-  const chunkSize = 16384; // Adjust this value if needed
+  const chunkSize = 16384;
   let offset = 0;
   let fileReader = new FileReader();
   let sendProgress = 0;
@@ -219,10 +221,9 @@ function sendFile(file) {
         error.name === "OperationError" &&
         sendChannel.bufferedAmount > sendChannel.bufferedAmountLowThreshold
       ) {
-        // The send queue is full, so wait for it to drain
         sendChannel.onbufferedamountlow = () => {
           sendChannel.onbufferedamountlow = null;
-          sendChunk(chunk); // Try to send the chunk again
+          sendChunk(chunk);
         };
       } else {
         console.error("Error sending chunk:", error);
@@ -235,7 +236,6 @@ function sendFile(file) {
     fileReader.readAsArrayBuffer(slice);
   }
 
-  // Start sending the file
   readNextChunk();
 }
 
@@ -259,7 +259,6 @@ function onReceiveMessageCallback(event) {
   receiveBuffer.push(data);
   receivedSize += data.byteLength;
 
-  // Calculate and display the percentage of the file received
   const percentage = Math.round((receivedSize / fileSize) * 100);
   statusElement.textContent = `Receiving file... ${percentage}%`;
 
@@ -275,7 +274,6 @@ function onReceiveMessageCallback(event) {
     statusElement.appendChild(downloadLink);
     console.log("File received successfully.");
 
-    // Reset incomingFileInfo
     incomingFileInfo = null;
   }
 }
@@ -313,7 +311,6 @@ function handleSignalingData(data) {
   if (data.type === "offer") {
     console.log("Handling offer:", data.offer);
     
-    // Check if the sender is the selected target client
     if (data.from !== targetClientId) {
       console.log("Offer received from non-selected client. Ignoring.");
       return;
@@ -337,13 +334,13 @@ function handleSignalingData(data) {
         receiveChannel.onmessage = onReceiveMessageCallback;
         receiveChannel.onopen = () => {
           statusElement.textContent = "Receiving file...";
-          webrtcStatusElement.textContent = "WebRTC Status: Data channel open"; // Update WebRTC status
+          webrtcStatusElement.textContent = "WebRTC Status: Data channel open";
           console.log("Data channel opened.");
         };
         receiveChannel.onclose = () => {
           statusElement.textContent = "Connection closed.";
           webrtcStatusElement.textContent =
-            "WebRTC Status: Data channel closed"; // Update WebRTC status
+            "WebRTC Status: Data channel closed";
           console.log("Data channel closed.");
         };
 
@@ -368,7 +365,6 @@ function handleSignalingData(data) {
     receiveButton.disabled = false;
     pendingFileTransfer = true;
 
-    // Don't create answer immediately, wait for user to click receive button
   } else if (data.type === "answer") {
     console.log("Handling answer:", data.answer);
     localConnection.setRemoteDescription(
@@ -392,7 +388,6 @@ function handleSignalingData(data) {
   }
 }
 
-// Add a helper function to format file size
 function formatFileSize(bytes) {
   if (bytes < 1024) return bytes + " bytes";
   else if (bytes < 1048576) return (bytes / 1024).toFixed(2) + " KB";
@@ -400,7 +395,6 @@ function formatFileSize(bytes) {
   else return (bytes / 1073741824).toFixed(2) + " GB";
 }
 
-// Modify the initial setup
 document.addEventListener("DOMContentLoaded", () => {
   receiveButton.disabled = true;
 });
