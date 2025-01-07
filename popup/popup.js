@@ -4,7 +4,7 @@ let fileSize = 0;
 let fileName = "";
 
 // Connect to the WebSocket server
-const ws = new WebSocket("https://wild-curse-watchmaker.glitch.me/");
+const ws = new WebSocket("ws://localhost:8080");
 
 ws.onopen = () => {
   console.log("Connected to WebSocket server");
@@ -26,13 +26,8 @@ ws.onmessage = (event) => {
     fileChunks.push(new Uint8Array(message.file.data));
     fileSize += message.file.data.length;
 
-    // Update progress bar
-    const progress = Math.round((fileSize / message.file.size) * 100);
-    document.getElementById("progress-bar").value = progress;
-    document.getElementById("progress-text").innerText = `${progress}%`;
-
+    // Reassemble the file if all chunks are received
     if (fileSize === message.file.size) {
-      // Reassemble the file
       const fileData = new Uint8Array(fileSize);
       let offset = 0;
       for (const chunk of fileChunks) {
@@ -71,10 +66,11 @@ ws.onmessage = (event) => {
       const buttonContainer = document.getElementById("button-container");
       buttonContainer.innerHTML = ""; // Clear previous buttons
       buttonContainer.appendChild(downloadButton);
-
-      // Re-enable the send button
-      document.getElementById("send-file").disabled = false;
     }
+  } else if (message.type === "PROGRESS_UPDATE") {
+    // Update progress bar
+    document.getElementById("progress-bar").value = message.progress;
+    document.getElementById("progress-text").innerText = `${message.progress}%`;
   } else if (message.type === "ERROR") {
     console.error("Error:", message.message);
     document.getElementById("status").innerText = `Error: ${message.message}`;
@@ -100,6 +96,9 @@ document.getElementById("send-file").addEventListener("click", () => {
     // Disable the send button
     document.getElementById("send-file").disabled = true;
 
+    // Show progress bar
+    document.getElementById("progress-container").style.display = "block";
+
     const file = fileInput.files[0];
     sendFileInChunks(file, recipient);
   }
@@ -112,6 +111,9 @@ function sendFileInChunks(file, recipient) {
 
   reader.onload = () => {
     const chunk = new Uint8Array(reader.result);
+    const progress = Math.round((offset / file.size) * 100);
+
+    // Send the file chunk
     ws.send(
       JSON.stringify({
         type: "FILE_CHUNK",
@@ -124,6 +126,25 @@ function sendFileInChunks(file, recipient) {
         },
       })
     );
+
+    // Send progress update with size information
+    ws.send(
+      JSON.stringify({
+        type: "PROGRESS_UPDATE",
+        recipient,
+        progress,
+        transferred: offset + chunk.length,
+        total: file.size,
+      })
+    );
+
+    // Update sender's progress bar
+    document.getElementById("progress-bar").value = progress;
+    document.getElementById(
+      "progress-text"
+    ).innerText = `${progress}% (${formatBytes(
+      offset + chunk.length
+    )} / ${formatBytes(file.size)})`;
 
     offset += chunk.length;
     if (offset < file.size) {
@@ -143,4 +164,15 @@ function sendFileInChunks(file, recipient) {
   }
 
   readNextChunk();
+}
+
+// Helper function to format bytes into human-readable format
+function formatBytes(bytes, decimals = 2) {
+  if (bytes === 0) return "0 Bytes";
+  const k = 1024;
+  const sizes = ["Bytes", "KB", "MB", "GB", "TB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return (
+    parseFloat((bytes / Math.pow(k, i)).toFixed(decimals)) + " " + sizes[i]
+  );
 }
