@@ -1,5 +1,6 @@
+// popup.js - Updated to work with background service worker
+
 // Global variables
-let ws = null;
 let username = null;
 let selectedTransferMode = 'webrtc';
 let peerConnection = null;
@@ -9,80 +10,90 @@ let fileSize = 0;
 let fileName = "";
 let receivedBytes = 0;
 let selectedFile = null;
+let isConnected = false;
 
 // Initialize
-document.addEventListener('DOMContentLoaded', () => {
-  // Load saved username from localStorage
-  loadSavedUsername();
-  connectToServer();
+document.addEventListener('DOMContentLoaded', async () => {
   setupEventListeners();
+
+  // Get current state from background
+  const state = await sendToBackground({ type: "GET_STATE" });
+
+  if (state) {
+    isConnected = state.connected;
+    updateConnectionStatus(state.connected);
+
+    if (state.username) {
+      // User already has a username set
+      username = state.username;
+      handleUsernameSet({
+        username: state.username,
+        availableUsers: state.users || []
+      });
+    } else {
+      // Show username setup
+      document.getElementById("username-setup").classList.remove("hidden");
+      document.getElementById("transfer-interface").classList.add("hidden");
+    }
+
+    if (state.users && state.users.length > 0) {
+      updateUserList(state.users);
+    }
+  }
+
+  // Listen for messages from background
+  chrome.runtime.onMessage.addListener(handleBackgroundMessage);
+
+  // Request connection if not connected
+  if (!isConnected) {
+    sendToBackground({ type: "CONNECT" });
+  }
 });
 
-// Load saved username
-function loadSavedUsername() {
-  const savedUsername = localStorage.getItem('p2p_username');
-  if (savedUsername) {
-    document.getElementById('username-input').value = savedUsername;
-    // Auto-set username after connection
-    setTimeout(() => {
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        setUsername(savedUsername);
-      }
-    }, 500);
-  }
+// Send message to background service worker
+function sendToBackground(message) {
+  return new Promise((resolve) => {
+    chrome.runtime.sendMessage(message, (response) => {
+      resolve(response);
+    });
+  });
 }
 
-// Connect to WebSocket server
-function connectToServer() {
-  ws = new WebSocket("ws://localhost:8080");  // replace wss://localhost:8080/ with your signaling server URL: https://qs2v6n76-8080.inc1.devtunnels.ms/
-  ws.binaryType = 'arraybuffer';
-
-  ws.onopen = () => {
-    console.log("Connected to server");
-    updateConnectionStatus(true);
-
-    // If we have a saved username, try to set it
-    const savedUsername = localStorage.getItem('p2p_username');
-    if (savedUsername) {
-      setUsername(savedUsername);
-    }
-  };
-
-  ws.onmessage = handleServerMessage;
-
-  ws.onerror = (error) => {
-    console.error("WebSocket error:", error);
-    updateConnectionStatus(false);
-  };
-
-  ws.onclose = () => {
-    console.log("Disconnected from server");
-    updateConnectionStatus(false);
-    // Try to reconnect after 3 seconds
-    setTimeout(connectToServer, 3000);
-  };
-}
-
-// Handle messages from server
-function handleServerMessage(event) {
-  if (event.data instanceof ArrayBuffer) return;
-
-  const message = JSON.parse(event.data);
-  console.log("Received message:", message.type);
-
+// Handle messages from background
+function handleBackgroundMessage(message, sender, sendResponse) {
   switch (message.type) {
-    case "USERNAME_SET":
+    case "CONNECTION_STATUS":
+      isConnected = message.connected;
+      updateConnectionStatus(message.connected);
+      if (message.username) {
+        username = message.username;
+        handleUsernameSet({ username: message.username });
+      }
+      break;
+
+    case "USERNAME_CONFIRMED":
+      username = message.username;
       handleUsernameSet(message);
       break;
+
     case "USERNAME_ERROR":
       alert(message.message);
       document.getElementById("set-username-btn").disabled = false;
-      // Clear saved username if it's invalid
-      localStorage.removeItem('p2p_username');
       break;
+
     case "USER_LIST":
       updateUserList(message.users);
       break;
+
+    case "SERVER_MESSAGE":
+      handleServerMessage(message.data);
+      break;
+  }
+}
+
+// Handle server messages forwarded from background
+function handleServerMessage(message) {
+  switch (message.type) {
     case "FILE_METADATA":
       handleIncomingFileMetadata(message);
       break;
@@ -110,16 +121,9 @@ function handleServerMessage(event) {
 // Setup event listeners
 function setupEventListeners() {
   // Username setup
-  document.getElementById("set-username-btn").addEventListener("click", () => {
-    const input = document.getElementById("username-input").value.trim();
-    setUsername(input);
-  });
-
+  document.getElementById("set-username-btn").addEventListener("click", setUsername);
   document.getElementById("username-input").addEventListener("keypress", (e) => {
-    if (e.key === "Enter") {
-      const input = document.getElementById("username-input").value.trim();
-      setUsername(input);
-    }
+    if (e.key === "Enter") setUsername();
   });
 
   // Transfer mode selection
@@ -128,7 +132,6 @@ function setupEventListeners() {
       document.querySelectorAll(".mode-option").forEach(o => o.classList.remove("active"));
       option.classList.add("active");
       selectedTransferMode = option.dataset.mode;
-      console.log("Transfer mode selected:", selectedTransferMode);
     });
   });
 
@@ -142,7 +145,7 @@ function setupEventListeners() {
   document.getElementById("send-file").addEventListener("click", sendFile);
   document.getElementById("clear-file").addEventListener("click", clearFileSelection);
 
-  // User list delegation (for dynamically created elements)
+  // User list delegation
   document.getElementById("user-list").addEventListener("click", (e) => {
     if (e.target.classList.contains("user-tag")) {
       const user = e.target.getAttribute("data-user");
@@ -152,6 +155,66 @@ function setupEventListeners() {
 
   // Drag and drop
   setupDragAndDrop();
+}
+
+// Set username
+async function setUsername() {
+  const input = document.getElementById("username-input");
+  const requestedUsername = input.value.trim();
+
+  if (!requestedUsername) {
+    alert("Please enter a username");
+    return;
+  }
+
+  if (requestedUsername.length < 3) {
+    alert("Username must be at least 3 characters");
+    return;
+  }
+
+  document.getElementById("set-username-btn").disabled = true;
+
+  // Send to background service worker
+  const response = await sendToBackground({
+    type: "SET_USERNAME",
+    username: requestedUsername
+  });
+
+  if (!response.success && response.message) {
+    alert(response.message);
+    document.getElementById("set-username-btn").disabled = false;
+  }
+}
+
+// Handle username confirmation
+function handleUsernameSet(message) {
+  username = message.username;
+  document.getElementById("status-text").innerText = `Connected as: ${username}`;
+  document.getElementById("username-setup").classList.add("hidden");
+  document.getElementById("transfer-interface").classList.remove("hidden");
+  document.getElementById("set-username-btn").disabled = false;
+
+  if (message.availableUsers) {
+    updateUserList(message.availableUsers);
+  }
+}
+
+// Update online users list
+function updateUserList(users) {
+  const userListElement = document.getElementById("user-list");
+
+  if (!users || users.length === 0) {
+    userListElement.innerHTML = '<span style="color: #999; font-size: 12px;">No other users online</span>';
+  } else {
+    userListElement.innerHTML = users.map(user =>
+      `<span class="user-tag" data-user="${user}">${user}</span>`
+    ).join('');
+  }
+}
+
+// Select user from list
+function selectUser(user) {
+  document.getElementById("recipient-username").value = user;
 }
 
 // Handle file selection
@@ -213,66 +276,6 @@ function clearFileSelection() {
   document.querySelector(".file-input-label").textContent = "📁 Choose file or drag & drop here";
 }
 
-// Set username
-function setUsername(requestedUsername) {
-  if (!requestedUsername) {
-    requestedUsername = document.getElementById("username-input").value.trim();
-  }
-
-  if (!requestedUsername) {
-    alert("Please enter a username");
-    return;
-  }
-
-  if (requestedUsername.length < 3) {
-    alert("Username must be at least 3 characters");
-    return;
-  }
-
-  document.getElementById("set-username-btn").disabled = true;
-
-  // Save username to localStorage
-  localStorage.setItem('p2p_username', requestedUsername);
-
-  ws.send(JSON.stringify({
-    type: "SET_USERNAME",
-    username: requestedUsername
-  }));
-}
-
-// Handle username confirmation
-function handleUsernameSet(message) {
-  username = message.username;
-  document.getElementById("status-text").innerText = `Connected as: ${username}`;
-  document.getElementById("username-setup").classList.add("hidden");
-  document.getElementById("transfer-interface").classList.remove("hidden");
-
-  // Save username to localStorage
-  localStorage.setItem('p2p_username', username);
-
-  if (message.availableUsers) {
-    updateUserList(message.availableUsers);
-  }
-}
-
-// Update online users list
-function updateUserList(users) {
-  const userListElement = document.getElementById("user-list");
-
-  if (users.length === 0) {
-    userListElement.innerHTML = '<span style="color: #999; font-size: 12px;">No other users online</span>';
-  } else {
-    userListElement.innerHTML = users.map(user =>
-      `<span class="user-tag" data-user="${user}">${user}</span>`
-    ).join('');
-  }
-}
-
-// Select user from list
-function selectUser(user) {
-  document.getElementById("recipient-username").value = user;
-}
-
 // Send file
 async function sendFile() {
   const recipient = document.getElementById("recipient-username").value.trim();
@@ -309,12 +312,20 @@ async function sendFile() {
   }
 }
 
+// Send WebSocket message through background
+async function sendWSMessage(data) {
+  return await sendToBackground({
+    type: "SEND_MESSAGE",
+    data: data
+  });
+}
+
 // WebRTC Transfer
 async function startWebRTCTransfer(file, recipient) {
   console.log("Starting WebRTC transfer to", recipient);
 
   // Send file metadata first
-  ws.send(JSON.stringify({
+  await sendWSMessage({
     type: "FILE_METADATA",
     recipient,
     file: {
@@ -323,7 +334,7 @@ async function startWebRTCTransfer(file, recipient) {
       type: file.type
     },
     transferMode: "webrtc"
-  }));
+  });
 
   // Create peer connection
   const configuration = {
@@ -358,11 +369,11 @@ async function startWebRTCTransfer(file, recipient) {
   // Handle ICE candidates
   peerConnection.onicecandidate = (event) => {
     if (event.candidate) {
-      ws.send(JSON.stringify({
+      sendWSMessage({
         type: "WEBRTC_ICE_CANDIDATE",
         recipient,
         candidate: event.candidate
-      }));
+      });
     }
   };
 
@@ -370,16 +381,16 @@ async function startWebRTCTransfer(file, recipient) {
   const offer = await peerConnection.createOffer();
   await peerConnection.setLocalDescription(offer);
 
-  ws.send(JSON.stringify({
+  await sendWSMessage({
     type: "WEBRTC_OFFER",
     recipient,
     offer: offer
-  }));
+  });
 }
 
 // Send file via data channel
 async function sendFileViaDataChannel(file) {
-  const chunkSize = 1 * 1024 * 256; // 256Kb chunks for WebRTC
+  const chunkSize = 16384; // 16KB chunks for WebRTC
   let offset = 0;
   const startTime = performance.now();
 
@@ -428,6 +439,85 @@ async function sendFileViaDataChannel(file) {
   sendNextChunk();
 }
 
+// WebSocket Transfer
+function startWebSocketTransfer(file, recipient) {
+  console.log("Starting WebSocket transfer to", recipient);
+
+  sendWSMessage({
+    type: "FILE_METADATA",
+    recipient,
+    file: {
+      name: file.name,
+      size: file.size,
+      type: file.type
+    },
+    transferMode: "websocket"
+  });
+
+  sendFileViaWebSocket(file, recipient);
+}
+
+// Send file via WebSocket
+function sendFileViaWebSocket(file, recipient) {
+  const CHUNK_SIZE = 256 * 1024; // 256KB chunks
+  let offset = 0;
+  let startTime = performance.now();
+
+  function sendNextChunk() {
+    const chunk = file.slice(offset, offset + CHUNK_SIZE);
+    const reader = new FileReader();
+
+    reader.onload = async () => {
+      const chunkData = new Uint8Array(reader.result);
+
+      await sendWSMessage({
+        type: "FILE_CHUNK",
+        recipient,
+        file: {
+          name: file.name,
+          size: file.size,
+          offset: offset,
+          data: Array.from(chunkData)
+        }
+      });
+
+      offset += chunk.size;
+
+      // Update progress
+      const progress = Math.round((offset / file.size) * 100);
+      const elapsed = (performance.now() - startTime) / 1000;
+      const speed = offset / elapsed;
+
+      document.getElementById("progress-bar").value = progress;
+      document.getElementById("progress-text").innerText =
+        `${progress}% - ${formatBytes(speed)}/s`;
+
+      if (offset < file.size) {
+        setTimeout(sendNextChunk, 10);
+      } else {
+        sendWSMessage({
+          type: "FILE_COMPLETE",
+          recipient,
+          fileName: file.name
+        });
+
+        console.log("File sent successfully");
+        document.getElementById("status-text").innerText = "File sent successfully";
+        document.getElementById("send-file").disabled = false;
+        clearFileSelection();
+
+        setTimeout(() => {
+          document.getElementById("progress-container").style.display = "none";
+        }, 2000);
+      }
+    };
+
+    reader.readAsArrayBuffer(chunk);
+  }
+
+  sendNextChunk();
+}
+
 // Handle incoming WebRTC offer
 async function handleWebRTCOffer(message) {
   console.log("Received WebRTC offer from", message.sender);
@@ -443,11 +533,11 @@ async function handleWebRTCOffer(message) {
 
   peerConnection.onicecandidate = (event) => {
     if (event.candidate) {
-      ws.send(JSON.stringify({
+      sendWSMessage({
         type: "WEBRTC_ICE_CANDIDATE",
         recipient: message.sender,
         candidate: event.candidate
-      }));
+      });
     }
   };
 
@@ -497,11 +587,11 @@ async function handleWebRTCOffer(message) {
   const answer = await peerConnection.createAnswer();
   await peerConnection.setLocalDescription(answer);
 
-  ws.send(JSON.stringify({
+  await sendWSMessage({
     type: "WEBRTC_ANSWER",
     recipient: message.sender,
     answer: answer
-  }));
+  });
 }
 
 // Handle WebRTC answer
@@ -515,85 +605,6 @@ async function handleICECandidate(message) {
   if (peerConnection) {
     await peerConnection.addIceCandidate(new RTCIceCandidate(message.candidate));
   }
-}
-
-// WebSocket Transfer
-function startWebSocketTransfer(file, recipient) {
-  console.log("Starting WebSocket transfer to", recipient);
-
-  ws.send(JSON.stringify({
-    type: "FILE_METADATA",
-    recipient,
-    file: {
-      name: file.name,
-      size: file.size,
-      type: file.type
-    },
-    transferMode: "websocket"
-  }));
-
-  sendFileViaWebSocket(file, recipient);
-}
-
-// Send file via WebSocket
-function sendFileViaWebSocket(file, recipient) {
-  const CHUNK_SIZE = 256 * 1024; // 256KB chunks
-  let offset = 0;
-  let startTime = performance.now();
-
-  function sendNextChunk() {
-    const chunk = file.slice(offset, offset + CHUNK_SIZE);
-    const reader = new FileReader();
-
-    reader.onload = () => {
-      const chunkData = new Uint8Array(reader.result);
-
-      ws.send(JSON.stringify({
-        type: "FILE_CHUNK",
-        recipient,
-        file: {
-          name: file.name,
-          size: file.size,
-          offset: offset,
-          data: Array.from(chunkData)
-        }
-      }));
-
-      offset += chunk.size;
-
-      // Update progress
-      const progress = Math.round((offset / file.size) * 100);
-      const elapsed = (performance.now() - startTime) / 1000;
-      const speed = offset / elapsed;
-
-      document.getElementById("progress-bar").value = progress;
-      document.getElementById("progress-text").innerText =
-        `${progress}% - ${formatBytes(speed)}/s`;
-
-      if (offset < file.size) {
-        setTimeout(sendNextChunk, 10);
-      } else {
-        ws.send(JSON.stringify({
-          type: "FILE_COMPLETE",
-          recipient,
-          fileName: file.name
-        }));
-
-        console.log("File sent successfully");
-        document.getElementById("status-text").innerText = "File sent successfully";
-        document.getElementById("send-file").disabled = false;
-        clearFileSelection();
-
-        setTimeout(() => {
-          document.getElementById("progress-container").style.display = "none";
-        }, 2000);
-      }
-    };
-
-    reader.readAsArrayBuffer(chunk);
-  }
-
-  sendNextChunk();
 }
 
 // Handle incoming file metadata
