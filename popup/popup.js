@@ -34,7 +34,7 @@ function loadSavedUsername() {
 
 // Connect to WebSocket server
 function connectToServer() {
-  ws = new WebSocket("ws://localhost:8080");
+  ws = new WebSocket("ws://localhost:8080");  // replace wss://localhost:8080/ with your signaling server URL: https://qs2v6n76-8080.inc1.devtunnels.ms/
   ws.binaryType = 'arraybuffer';
 
   ws.onopen = () => {

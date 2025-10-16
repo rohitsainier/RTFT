@@ -14,7 +14,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 function connectToSignalingServer() {
-  const ws = new WebSocket("wss://localhost:8080/");
+  const ws = new WebSocket("wss://localhost:8080/"); // replace wss://localhost:8080/ with your signaling server URL: https://qs2v6n76-8080.inc1.devtunnels.ms/
   ws.onopen = () => {
     ws.send(JSON.stringify({ type: "SET_USERNAME", username: username }));
   };
@@ -69,7 +69,7 @@ function sendFile(file) {
 }
 
 function sendSignal(message) {
-  const ws = new WebSocket("wss://localhost:8080/");
+  const ws = new WebSocket("wss://localhost:8080/"); // replace wss://localhost:8080/ with your signaling server URL: https://qs2v6n76-8080.inc1.devtunnels.ms/
   ws.onopen = () => {
     ws.send(JSON.stringify({ ...message, sender: username }));
   };
