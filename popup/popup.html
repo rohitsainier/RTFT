@@ -1,24 +1,469 @@
 <!DOCTYPE html>
-<html>
-  <head>
-    <title>WebRTC File Sharing</title>
-    <link rel="stylesheet" href="styles.css" />
-  </head>
-  <body>
-    <h1>WebRTC File Sharing</h1>
-    <div id="status">Connecting...</div>
-    <input type="file" id="file-input" />
-    <input
-      type="text"
-      id="recipient-username"
-      placeholder="Recipient's username"
-    />
-    <button id="send-file">Send File</button>
-    <div id="progress-container" style="display: none">
-      <progress id="progress-bar" value="0" max="100"></progress>
-      <span id="progress-text">0%</span>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>P2P File Transfer</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 20px;
+    }
+
+    .container {
+      background: white;
+      border-radius: 20px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+      padding: 40px;
+      max-width: 550px;
+      width: 100%;
+    }
+
+    h1 {
+      color: #333;
+      margin-bottom: 10px;
+      text-align: center;
+      font-size: 28px;
+    }
+
+    #status {
+      text-align: center;
+      color: #666;
+      margin-bottom: 20px;
+      font-size: 14px;
+      padding: 10px;
+      background: #f7f7f7;
+      border-radius: 10px;
+    }
+
+    .username-setup {
+      padding: 20px;
+      background: #f9f9f9;
+      border-radius: 10px;
+      margin-bottom: 20px;
+    }
+
+    .input-group {
+      margin-bottom: 20px;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 8px;
+      color: #555;
+      font-weight: 500;
+      font-size: 14px;
+    }
+
+    input[type="text"] {
+      width: 100%;
+      padding: 12px 15px;
+      border: 2px solid #e0e0e0;
+      border-radius: 10px;
+      font-size: 16px;
+      transition: all 0.3s;
+    }
+
+    input[type="text"]:focus {
+      outline: none;
+      border-color: #667eea;
+      box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    }
+
+    .transfer-mode {
+      display: flex;
+      gap: 15px;
+      margin-bottom: 20px;
+      padding: 15px;
+      background: #f7f7f7;
+      border-radius: 10px;
+    }
+
+    .mode-option {
+      flex: 1;
+      padding: 10px;
+      text-align: center;
+      border: 2px solid #e0e0e0;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.3s;
+    }
+
+    .mode-option:hover {
+      border-color: #667eea;
+      background: #f0f0f0;
+    }
+
+    .mode-option.active {
+      border-color: #667eea;
+      background: #e8ebff;
+      color: #667eea;
+      font-weight: 600;
+    }
+
+    .mode-option .mode-title {
+      font-size: 16px;
+      margin-bottom: 5px;
+    }
+
+    .mode-option .mode-desc {
+      font-size: 12px;
+      color: #888;
+    }
+
+    .file-input-wrapper {
+      position: relative;
+      overflow: hidden;
+      display: inline-block;
+      width: 100%;
+    }
+
+    .file-input-wrapper input[type=file] {
+      position: absolute;
+      left: -9999px;
+    }
+
+    .file-input-label {
+      display: block;
+      padding: 12px 15px;
+      background: #f7f7f7;
+      border: 2px dashed #ddd;
+      border-radius: 10px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.3s;
+      color: #666;
+    }
+
+    .file-input-label:hover {
+      background: #f0f0f0;
+      border-color: #667eea;
+    }
+
+    .drag-over .file-input-label {
+      background: #e8ebff;
+      border-color: #667eea;
+    }
+
+    /* File preview styles */
+    .file-preview {
+      display: none;
+      padding: 15px;
+      background: #f0f4ff;
+      border: 2px solid #667eea;
+      border-radius: 10px;
+      margin-top: 10px;
+    }
+
+    .file-preview.active {
+      display: block;
+    }
+
+    .file-preview-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
+    }
+
+    .file-icon {
+      font-size: 24px;
+      margin-right: 10px;
+    }
+
+    .file-info {
+      flex: 1;
+    }
+
+    .file-name {
+      font-weight: 600;
+      color: #333;
+      margin-bottom: 5px;
+      word-break: break-all;
+    }
+
+    .file-details {
+      font-size: 12px;
+      color: #666;
+    }
+
+    .remove-file {
+      background: #ff6b6b;
+      color: white;
+      border: none;
+      padding: 5px 10px;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+
+    .remove-file:hover {
+      background: #ff5252;
+    }
+
+    .button-group {
+      display: flex;
+      gap: 10px;
+      margin-top: 20px;
+    }
+
+    button {
+      flex: 1;
+      padding: 12px 24px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      border-radius: 10px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s;
+      box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+    }
+
+    button:hover:not(:disabled) {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    #set-username-btn {
+      background: linear-gradient(135deg, #56d8a1 0%, #48b884 100%);
+    }
+
+    #clear-file {
+      background: #ff6b6b;
+      box-shadow: 0 4px 15px rgba(255, 107, 107, 0.3);
+    }
+
+    .online-users {
+      margin-top: 20px;
+      padding: 15px;
+      background: #f7f7f7;
+      border-radius: 10px;
+    }
+
+    .online-users h3 {
+      font-size: 14px;
+      color: #666;
+      margin-bottom: 10px;
+    }
+
+    .user-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .user-tag {
+      padding: 5px 10px;
+      background: white;
+      border: 1px solid #ddd;
+      border-radius: 15px;
+      font-size: 12px;
+      color: #555;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .user-tag:hover {
+      border-color: #667eea;
+      color: #667eea;
+      background: #f0f4ff;
+    }
+
+    #progress-container {
+      display: none;
+      margin-top: 30px;
+      padding: 20px;
+      background: #f7f7f7;
+      border-radius: 10px;
+    }
+
+    #progress-bar {
+      width: 100%;
+      height: 8px;
+      border-radius: 4px;
+      overflow: hidden;
+      appearance: none;
+      -webkit-appearance: none;
+    }
+
+    #progress-bar::-webkit-progress-bar {
+      background-color: #e0e0e0;
+      border-radius: 4px;
+    }
+
+    #progress-bar::-webkit-progress-value {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      border-radius: 4px;
+    }
+
+    #progress-text {
+      text-align: center;
+      margin-top: 10px;
+      color: #666;
+      font-size: 14px;
+      font-weight: 500;
+    }
+
+    .download-btn {
+      width: 100%;
+      padding: 15px;
+      background: linear-gradient(135deg, #56d8a1 0%, #48b884 100%);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      box-shadow: 0 4px 15px rgba(72, 184, 132, 0.3);
+      margin-top: 10px;
+    }
+
+    .download-btn:hover {
+      box-shadow: 0 6px 20px rgba(72, 184, 132, 0.4);
+    }
+
+    .download-btn span {
+      display: block;
+    }
+
+    .file-size {
+      font-size: 12px;
+      opacity: 0.9;
+    }
+
+    .connection-status {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      margin-right: 5px;
+    }
+
+    .connection-status.connected {
+      background: #4caf50;
+      animation: pulse 2s infinite;
+    }
+
+    .connection-status.disconnected {
+      background: #f44336;
+    }
+
+    @keyframes pulse {
+      0% {
+        box-shadow: 0 0 0 0 rgba(76, 175, 80, 0.4);
+      }
+
+      70% {
+        box-shadow: 0 0 0 10px rgba(76, 175, 80, 0);
+      }
+
+      100% {
+        box-shadow: 0 0 0 0 rgba(76, 175, 80, 0);
+      }
+    }
+
+    .hidden {
+      display: none !important;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <h1>🚀 P2P File Transfer</h1>
+    <div id="status">
+      <span class="connection-status disconnected"></span>
+      <span id="status-text">Connecting...</span>
     </div>
+
+    <!-- Username Setup -->
+    <div id="username-setup" class="username-setup">
+      <div class="input-group">
+        <label for="username-input">Choose your username:</label>
+        <input type="text" id="username-input" placeholder="Enter a unique username">
+      </div>
+      <button id="set-username-btn">Set Username</button>
+    </div>
+
+    <!-- Main Transfer Interface (initially hidden) -->
+    <div id="transfer-interface" class="hidden">
+      <!-- Transfer Mode Selection -->
+      <div class="transfer-mode">
+        <div class="mode-option active" data-mode="webrtc">
+          <div class="mode-title">⚡ WebRTC</div>
+          <div class="mode-desc">Direct P2P (Faster)</div>
+        </div>
+        <div class="mode-option" data-mode="websocket">
+          <div class="mode-title">🌐 WebSocket</div>
+          <div class="mode-desc">Through Server</div>
+        </div>
+      </div>
+
+      <div class="input-group">
+        <label for="recipient-username">Recipient Username:</label>
+        <input type="text" id="recipient-username" placeholder="Enter recipient's username">
+      </div>
+
+      <div class="input-group">
+        <label for="file-input">Select File:</label>
+        <div class="file-input-wrapper" id="drop-zone">
+          <input type="file" id="file-input">
+          <label for="file-input" class="file-input-label">
+            📁 Choose file or drag & drop here
+          </label>
+        </div>
+        <!-- File Preview -->
+        <div id="file-preview" class="file-preview">
+          <div class="file-preview-header">
+            <span class="file-icon">📄</span>
+            <div class="file-info">
+              <div class="file-name" id="preview-file-name"></div>
+              <div class="file-details" id="preview-file-details"></div>
+            </div>
+            <button class="remove-file" id="remove-file">✕ Remove</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="button-group">
+        <button id="send-file">📤 Send File</button>
+        <button id="clear-file">🗑️ Clear</button>
+      </div>
+
+      <!-- Online Users -->
+      <div class="online-users">
+        <h3>📡 Online Users (click to select)</h3>
+        <div id="user-list" class="user-list">
+          <span style="color: #999; font-size: 12px;">No users online</span>
+        </div>
+      </div>
+    </div>
+
+    <div id="progress-container">
+      <progress id="progress-bar" value="0" max="100"></progress>
+      <div id="progress-text">0%</div>
+    </div>
+
     <div id="button-container"></div>
-    <script src="popup.js"></script>
-  </body>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+
 </html>

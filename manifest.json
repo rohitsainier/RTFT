@@ -3,9 +3,14 @@
   "name": "WebRTC File Sharing",
   "version": "1.0",
   "description": "A Chrome extension for file sharing using WebRTC.",
-  "permissions": ["storage", "activeTab", "scripting"],
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting"
+  ],
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "background.js",
+    "type": "module"
   },
   "action": {
     "default_popup": "popup/popup.html",
@@ -19,5 +24,9 @@
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
-  }
+  },
+  "host_permissions": [
+    "ws://localhost:8080/*",
+    "wss://localhost:8080/*"
+  ]
 }

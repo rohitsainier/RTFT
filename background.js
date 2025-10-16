@@ -14,7 +14,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 function connectToSignalingServer() {
-  const ws = new WebSocket("https://wild-curse-watchmaker.glitch.me/");
+  const ws = new WebSocket("wss://localhost:8080/");
   ws.onopen = () => {
     ws.send(JSON.stringify({ type: "SET_USERNAME", username: username }));
   };
@@ -69,7 +69,7 @@ function sendFile(file) {
 }
 
 function sendSignal(message) {
-  const ws = new WebSocket("https://wild-curse-watchmaker.glitch.me/");
+  const ws = new WebSocket("wss://localhost:8080/");
   ws.onopen = () => {
     ws.send(JSON.stringify({ ...message, sender: username }));
   };
