@@ -390,7 +390,7 @@ async function startWebRTCTransfer(file, recipient) {
 
 // Send file via data channel
 async function sendFileViaDataChannel(file) {
-  const chunkSize = 16384; // 16KB chunks for WebRTC
+  const chunkSize = 1 * 1024 * 256; // 256KB chunks for WebRTC
   let offset = 0;
   const startTime = performance.now();
 
