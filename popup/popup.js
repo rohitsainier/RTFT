@@ -295,7 +295,7 @@ async function sendFile() {
     return;
   }
 
-  const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500 MB
+  const MAX_FILE_SIZE = 2000 * 1024 * 1024; // 2 GB
 
   if (selectedFile.size > MAX_FILE_SIZE) {
     alert(`File too large. Maximum size is ${formatBytes(MAX_FILE_SIZE)}`);
